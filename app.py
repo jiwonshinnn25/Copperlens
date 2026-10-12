@@ -1,32 +1,19 @@
 """CopperLens - commodity market analytics dashboard (Streamlit)."""
 from __future__ import annotations
 
-import hashlib
-import os
-from pathlib import Path
-
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
 from copperlens import analytics as an
-from copperlens import data, nlp
+from copperlens import data
 from copperlens.config import METALS, RANGES
 
-ROOT = Path(__file__).parent
 COPPER = "#C87533"
 GREEN, RED, GREY = "#2ECC71", "#E74C3C", "#8A93A6"
 
 st.set_page_config(page_title="CopperLens", layout="wide")
-
-# Streamlit Cloud: expose secrets (ANTHROPIC_API_KEY, CL_MODEL) as environment variables.
-try:
-    for _k in ("ANTHROPIC_API_KEY", "CL_MODEL"):
-        if _k in st.secrets and not os.environ.get(_k):
-            os.environ[_k] = str(st.secrets[_k])
-except Exception:
-    pass  # no secrets configured -> rule-based engine
 
 st.markdown(
     "<style>.block-container{padding-top:1.4rem}"
@@ -39,11 +26,6 @@ st.markdown(
 @st.cache_data(ttl=300, show_spinner=False)
 def load(symbol: str, rng: str) -> tuple[pd.DataFrame, str]:
     return data.get_prices(symbol, rng)
-
-
-@st.cache_data(show_spinner=False)
-def summarise_cached(key: str, text: str, use_llm: bool) -> dict:
-    return nlp.summarise(text, use_llm=use_llm)
 
 
 # -------------------------------------------------------------- charts
@@ -72,11 +54,6 @@ def price_figure(df: pd.DataFrame, name: str, unit: str, short: int, long: int) 
     return fig
 
 
-def badge(sentiment: str) -> str:
-    colour = {"bullish": "green", "bearish": "red"}.get(sentiment, "gray")
-    return f":{colour}[**{sentiment.upper()}**]"
-
-
 # ------------------------------------------------------------- sidebar
 with st.sidebar:
     st.title("CopperLens")
@@ -88,8 +65,6 @@ with st.sidebar:
     if st.button("Refresh data"):
         st.cache_data.clear()
         st.rerun()
-    st.divider()
-    st.caption(f"NLP engine: **{'LLM API' if nlp.llm_available() else 'rule-based (no API key)'}**")
 
 symbol, unit = METALS[metal]
 rng = RANGES[rng_label]
@@ -102,7 +77,7 @@ if source == "live":
 else:
     st.warning("Live API unreachable - showing **simulated** (GBM) prices for demonstration only.")
 
-tab_mkt, tab_sd, tab_rep = st.tabs(["Market", "Supply–Demand", "Report Desk"])
+tab_mkt, tab_sd = st.tabs(["Market", "Supply–Demand"])
 
 # ----------------------------------------------------------- market tab
 with tab_mkt:
@@ -167,61 +142,3 @@ with tab_sd:
     st.plotly_chart(fig2, width='stretch')
     if "simulated" in (cu_src, au_src):
         st.caption("Note: some series are simulated because the live API was unreachable.")
-
-# ------------------------------------------------------------ report desk
-with tab_rep:
-    st.caption("Upload daily market-report PDFs. The NLP pipeline (PDF → text → LLM/rule engine) "
-               "returns a structured brief for a mock trading desk.")
-    use_llm = st.toggle("Use LLM summariser", value=nlp.llm_available(), disabled=not nlp.llm_available(),
-                        help="Set ANTHROPIC_API_KEY to enable. Falls back to rule-based NLP automatically.")
-    uploads = st.file_uploader("Market-report PDFs", type="pdf", accept_multiple_files=True)
-    samples = sorted((ROOT / "sample_reports").glob("*.pdf"))
-    chosen = st.multiselect("…or use bundled synthetic samples", [p.name for p in samples],
-                            default=[] if uploads else [p.name for p in samples[:1]])
-
-    docs: list[tuple[str, bytes]] = [(u.name, u.getvalue()) for u in uploads]
-    docs += [(p.name, p.read_bytes()) for p in samples if p.name in chosen]
-
-    # Guardrails for a public deployment: cap size/count and LLM calls per session.
-    MAX_MB, MAX_DOCS, MAX_LLM = 5, 6, 3
-    if len(docs) > MAX_DOCS:
-        st.warning(f"Only the first {MAX_DOCS} documents are processed.")
-    briefs = []
-    for i, (name, blob) in enumerate(docs[:MAX_DOCS]):
-        if len(blob) > MAX_MB * 1024 * 1024:
-            st.warning(f"{name} skipped (over {MAX_MB} MB).")
-            continue
-        text = nlp.extract_text(blob)
-        key = hashlib.sha1(blob).hexdigest()
-        briefs.append((name, summarise_cached(key, text, use_llm and i < MAX_LLM)))
-
-    if not briefs:
-        st.info("Add a PDF to generate a brief.")
-    else:
-        tally = pd.Series([b["sentiment"] for _, b in briefs]).value_counts()
-        st.subheader("Desk sentiment")
-        cols = st.columns(3)
-        for col, s in zip(cols, ("bullish", "neutral", "bearish")):
-            col.metric(s.capitalize(), int(tally.get(s, 0)))
-        for name, b in briefs:
-            with st.container(border=True):
-                st.markdown(f"#### {b['headline'] or name}")
-                st.caption(f"{name} · engine: {b['engine']}")
-                if b.get("note"):
-                    st.warning(b["note"])
-                left, right = st.columns([3, 2])
-                with left:
-                    for line in b["summary"]:
-                        st.markdown(f"- {line}")
-                with right:
-                    st.markdown(f"**Sentiment:** {badge(b['sentiment'])}")
-                    st.progress(b["confidence"], text=f"Confidence {b['confidence']:.0%}")
-                    if b["price_levels"]:
-                        st.markdown("**Levels to watch**")
-                        for lv in b["price_levels"]:
-                            st.markdown(f"- {lv}")
-                if b["signals"]:
-                    sig_df = pd.DataFrame(b["signals"]).rename(columns=str.title)
-                    sig_df["Direction"] = sig_df["Direction"].map(
-                        {"bullish": "Bullish", "bearish": "Bearish", "neutral": "Neutral"})
-                    st.dataframe(sig_df, hide_index=True, width='stretch')
