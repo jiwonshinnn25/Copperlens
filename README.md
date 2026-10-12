@@ -6,7 +6,7 @@ supply-demand pressure index.
 
 **Stack:** Python · Streamlit · Pandas · REST APIs · Plotly
 
-**Live demo:** _add your Streamlit link here_
+**Live demo:** _https://copperlens-test.streamlit.app/_
 
 ## Features
 | Tab | What it does |
