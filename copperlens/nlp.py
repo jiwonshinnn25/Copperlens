@@ -14,7 +14,7 @@ from typing import Any
 
 from pypdf import PdfReader
 
-MODEL = os.getenv("CL_MODEL", "claude-sonnet-5-5")
+DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_CHARS = 24_000
 
 SYSTEM_PROMPT = """You are a commodities research analyst supporting a trading desk.
@@ -148,15 +148,16 @@ def _normalise(d: dict[str, Any], engine: str) -> dict[str, Any]:
 def summarise_with_llm(text: str) -> dict[str, Any]:
     import anthropic  # imported lazily so the app runs without the SDK/key
 
+    model = os.getenv("CL_MODEL", DEFAULT_MODEL)
     client = anthropic.Anthropic()
     msg = client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=900,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text[:MAX_CHARS]}],
     )
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    return _normalise(_parse_json(raw), engine=f"LLM ({MODEL})")
+    return _normalise(_parse_json(raw), engine=f"LLM ({model})")
 
 
 def llm_available() -> bool:

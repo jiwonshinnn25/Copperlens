@@ -1,4 +1,4 @@
-# 🔶 CopperLens — Commodity Market Analytics Dashboard
+# CopperLens — Commodity Market Analytics Dashboard
 
 A Streamlit dashboard that ingests live metal prices over a REST API, computes technical and
 cross-market indicators, and turns daily market-report PDFs into structured briefs for a mock
@@ -6,12 +6,14 @@ trading desk using an LLM-powered NLP pipeline.
 
 **Stack:** Python · Streamlit · Pandas · REST APIs · LLM API (Anthropic) · Plotly · pypdf
 
+**Live demo:** _add your Streamlit link here_
+
 ## Features
 | Tab | What it does |
 |---|---|
-| 📈 **Market** | Candlestick chart with **7/30-day moving averages**, RSI(14), volume, 30-day annualised volatility, trend regime and golden/death-cross alerts. CSV export. |
-| ⚖️ **Supply–Demand** | Copper/Gold ratio (growth proxy), a composite **supply–demand pressure index** (−100…+100), and cross-metal performance rebased to 100. |
-| 📰 **Report Desk** | Upload market-report PDFs → text extraction → LLM summary → headline, bullets, sentiment, confidence, driver signals (Supply / Demand / Inventory / Macro / Policy) and price levels to watch. |
+| **Market** | Candlestick chart with **7/30-day moving averages**, RSI(14), volume, 30-day annualised volatility, trend regime and golden/death-cross alerts. CSV export. |
+| **Supply–Demand** | Copper/Gold ratio (growth proxy), a composite **supply–demand pressure index** (−100…+100), and cross-metal performance rebased to 100. |
+| **Report Desk** | Upload market-report PDFs → text extraction → LLM summary → headline, bullets, sentiment, confidence, driver signals (Supply / Demand / Inventory / Macro / Policy) and price levels to watch. |
 
 ## Architecture
 ```
@@ -28,13 +30,19 @@ PDF ──► nlp.extract_text ──► LLM (Anthropic API) ──────�
 ## Run it
 ```bash
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # or requirements.txt for just the app
 cp .env.example .env                                    # optional: add ANTHROPIC_API_KEY
 export ANTHROPIC_API_KEY=...                            # enables the LLM summariser
 streamlit run app.py
 pytest -q                                               # unit tests
 python scripts/make_sample_reports.py                   # regenerate synthetic sample PDFs
 ```
+
+## Data sources
+* **Prices:** Yahoo Finance public chart REST endpoint, `GET /v8/finance/chart/{symbol}?range=1y&interval=1d`
+  (no API key), parsed with `requests` into a Pandas DataFrame and cached for 5 minutes.
+* **LLM:** Anthropic Messages API (default `claude-haiku-5-5`, override with `CL_MODEL`).
+  Set `ANTHROPIC_API_KEY` as an environment variable locally or under *Secrets* on Streamlit Cloud.
 
 ## Methodology notes (read before quoting numbers)
 * **Prices:** COMEX/NYMEX front-month futures (e.g. `HG=F`) via Yahoo Finance's public chart endpoint;

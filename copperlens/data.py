@@ -14,7 +14,8 @@ import requests
 
 from .config import SIM_BASE, SIM_VOL
 
-CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
+CHART_URL = "https://{host}/v8/finance/chart/{symbol}"
 HEADERS = {"User-Agent": "Mozilla/5.0 (CopperLens research dashboard)"}
 OHLCV = ["open", "high", "low", "close", "volume"]
 
@@ -26,13 +27,21 @@ class DataError(RuntimeError):
 def fetch_prices(symbol: str, range_: str = "1y", interval: str = "1d",
                  timeout: float = 10.0) -> pd.DataFrame:
     """Download daily OHLCV for ``symbol`` from the REST API."""
-    resp = requests.get(
-        CHART_URL.format(symbol=symbol),
-        params={"range": range_, "interval": interval},
-        headers=HEADERS,
-        timeout=timeout,
-    )
-    resp.raise_for_status()
+    resp, last_exc = None, None
+    for host in HOSTS:  # second host is a backup if the first rate-limits us
+        try:
+            resp = requests.get(
+                CHART_URL.format(host=host, symbol=symbol),
+                params={"range": range_, "interval": interval},
+                headers=HEADERS,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            last_exc, resp = exc, None
+    if resp is None:
+        raise DataError(f"All hosts failed for {symbol}: {last_exc}")
     payload = resp.json().get("chart", {})
     if payload.get("error") or not payload.get("result"):
         raise DataError(f"No data returned for {symbol}: {payload.get('error')}")

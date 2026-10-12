@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +18,16 @@ ROOT = Path(__file__).parent
 COPPER = "#C87533"
 GREEN, RED, GREY = "#2ECC71", "#E74C3C", "#8A93A6"
 
-st.set_page_config(page_title="CopperLens", page_icon="🔶", layout="wide")
+st.set_page_config(page_title="CopperLens", layout="wide")
+
+# Streamlit Cloud: expose secrets (ANTHROPIC_API_KEY, CL_MODEL) as environment variables.
+try:
+    for _k in ("ANTHROPIC_API_KEY", "CL_MODEL"):
+        if _k in st.secrets and not os.environ.get(_k):
+            os.environ[_k] = str(st.secrets[_k])
+except Exception:
+    pass  # no secrets configured -> rule-based engine
+
 st.markdown(
     "<style>.block-container{padding-top:1.4rem}"
     "[data-testid=stMetricValue]{font-size:1.5rem}</style>",
@@ -69,13 +79,13 @@ def badge(sentiment: str) -> str:
 
 # ------------------------------------------------------------- sidebar
 with st.sidebar:
-    st.title("🔶 CopperLens")
+    st.title("CopperLens")
     st.caption("Commodity market analytics")
     metal = st.selectbox("Metal", list(METALS), index=0)
     rng_label = st.radio("History", list(RANGES), index=1, horizontal=True)
     short = st.slider("Short MA (days)", 3, 20, 7)
     long = st.slider("Long MA (days)", 20, 100, 30)
-    if st.button("↻ Refresh data"):
+    if st.button("Refresh data"):
         st.cache_data.clear()
         st.rerun()
     st.divider()
@@ -90,9 +100,9 @@ st.title(f"{metal} — Market Analytics")
 if source == "live":
     st.caption(f"Live data · {symbol} · REST API · last bar {df.index[-1]:%d %b %Y}")
 else:
-    st.warning("Live API unreachable - showing **simulated** (GBM) prices for demonstration only.", icon="⚠️")
+    st.warning("Live API unreachable - showing **simulated** (GBM) prices for demonstration only.")
 
-tab_mkt, tab_sd, tab_rep = st.tabs(["📈 Market", "⚖️ Supply–Demand", "📰 Report Desk"])
+tab_mkt, tab_sd, tab_rep = st.tabs(["Market", "Supply–Demand", "Report Desk"])
 
 # ----------------------------------------------------------- market tab
 with tab_mkt:
@@ -156,7 +166,7 @@ with tab_sd:
                        hovermode="x unified", legend=dict(orientation="h", y=1.1))
     st.plotly_chart(fig2, width='stretch')
     if "simulated" in (cu_src, au_src):
-        st.caption("⚠️ Some series are simulated because the live API was unreachable.")
+        st.caption("Note: some series are simulated because the live API was unreachable.")
 
 # ------------------------------------------------------------ report desk
 with tab_rep:
@@ -172,11 +182,18 @@ with tab_rep:
     docs: list[tuple[str, bytes]] = [(u.name, u.getvalue()) for u in uploads]
     docs += [(p.name, p.read_bytes()) for p in samples if p.name in chosen]
 
+    # Guardrails for a public deployment: cap size/count and LLM calls per session.
+    MAX_MB, MAX_DOCS, MAX_LLM = 5, 6, 3
+    if len(docs) > MAX_DOCS:
+        st.warning(f"Only the first {MAX_DOCS} documents are processed.")
     briefs = []
-    for name, blob in docs:
+    for i, (name, blob) in enumerate(docs[:MAX_DOCS]):
+        if len(blob) > MAX_MB * 1024 * 1024:
+            st.warning(f"{name} skipped (over {MAX_MB} MB).")
+            continue
         text = nlp.extract_text(blob)
         key = hashlib.sha1(blob).hexdigest()
-        briefs.append((name, summarise_cached(key, text, use_llm)))
+        briefs.append((name, summarise_cached(key, text, use_llm and i < MAX_LLM)))
 
     if not briefs:
         st.info("Add a PDF to generate a brief.")
@@ -206,5 +223,5 @@ with tab_rep:
                 if b["signals"]:
                     sig_df = pd.DataFrame(b["signals"]).rename(columns=str.title)
                     sig_df["Direction"] = sig_df["Direction"].map(
-                        {"bullish": "▲ bullish", "bearish": "▼ bearish", "neutral": "● neutral"})
+                        {"bullish": "Bullish", "bearish": "Bearish", "neutral": "Neutral"})
                     st.dataframe(sig_df, hide_index=True, width='stretch')
