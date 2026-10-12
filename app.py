@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,11 +11,6 @@ from plotly.subplots import make_subplots
 from copperlens import analytics as an
 from copperlens import data
 from copperlens.config import METALS, RANGES
-
-try:
-    from copperlens import nlp
-except Exception:  # pypdf missing etc. -> tab shows a clear error
-    nlp = None
 
 COPPER, BLUE = "#C87533", "#6FA8DC"
 GREEN, AMBER, RED, GREY = "#5FB380", "#D9A05B", "#D4666A", "#8D867A"
@@ -175,7 +169,7 @@ st.markdown(
     f'<span style="color:{GREEN if live else AMBER}">&#9679;</span>&nbsp; COPPERLENS</div>'
     f'<div class="r">{pill("SNAPSHOT " + f"{df.index[-1]:%d %b %Y}")}'
     f'{pill("LIVE REST" if live else "SIMULATED GBM", "ok" if live else "warn")}'
-    f'{pill("NLP RULE-BASED")}</div></div>',
+    f'</div></div>',
     unsafe_allow_html=True)
 
 last, prev = df["close"].iloc[-1], df["close"].iloc[-2]
@@ -200,8 +194,8 @@ if not live:
     st.warning("Live API unreachable - showing **simulated** (GBM) prices for demonstration only.")
 st.write("")
 
-tab_ops, tab_sd, tab_risk, tab_alerts, tab_pipe, tab_ai = st.tabs(
-    ["Operations", "Supply–Demand", "Risk & Stats", "Alerts", "Pipeline", "Report Analyst"])
+tab_ops, tab_sd, tab_risk, tab_alerts, tab_pipe = st.tabs(
+    ["Operations", "Supply–Demand", "Risk & Stats", "Alerts", "Pipeline"])
 
 # ------------------------------------------------------------ operations
 with tab_ops:
@@ -305,7 +299,6 @@ with tab_pipe:
         ("Features", "analytics.py", "OK", "ok", "MA · RSI(14) · 30d vol · volume ratio · Cu/Au ratio"),
         ("Scoring", "S/D pressure", "OK", "ok", "z-scored momentum, ratio change and volume surge → tanh"),
         ("Rules", "Alert layer", "OK", "ok", f"{len(signals)} indicators graded; {n_bad + n_warn} active"),
-        ("NLP", "nlp.py", "RULES", "ok", "PDF → text → lexicon + regex → structured brief (offline)"),
         ("Serve", "Streamlit", "OK", "ok", "Plotly charts · CSV export"),
     ]
     html = '<div class="flow">'
@@ -317,53 +310,6 @@ with tab_pipe:
     st.markdown(html + "</div>", unsafe_allow_html=True)
     st.write("")
     st.caption("Failure handling: API unreachable → labelled GBM simulation.")
-
-# ------------------------------------------------------------ report analyst
-SAMPLE = ("Copper rallied as inventories fell for a fourth session and a strike at a major Chilean mine "
-          "threatened supply. Data centre and grid investment continued to support demand, while a weaker "
-          "dollar added support. Analysts see resistance near $4.80/lb and support at $4.40/lb. "
-          "Tariff uncertainty remains a risk.")
-SAMPLE_DIR = Path(__file__).parent / "sample_reports"
-
-with tab_ai:
-    st.markdown('<div class="lbl">Tier 3 · text analysis layer</div>', unsafe_allow_html=True)
-    st.subheader("Market-report analyst")
-    if nlp is None:
-        st.error("NLP module failed to import. Add `pypdf` to requirements.txt.")
-    else:
-        samples = {p.stem: p for p in sorted(SAMPLE_DIR.glob("*.pdf"))} if SAMPLE_DIR.exists() else {}
-        c1, c2 = st.columns([1, 1])
-        choice = c1.selectbox("Sample report", ["(none)"] + list(samples))
-        up_file = c1.file_uploader("…or upload a PDF", type="pdf")
-        txt = c2.text_area("…or paste report text", SAMPLE, height=215)
-        if st.button("Analyse report", type="primary"):
-            try:
-                if up_file:
-                    text = nlp.extract_text(up_file.getvalue())
-                elif choice != "(none)":
-                    text = nlp.extract_text(str(samples[choice]))
-                else:
-                    text = txt
-                t1 = time.perf_counter()
-                st.session_state["brief"] = (nlp.summarise_rule_based(text), (time.perf_counter() - t1) * 1000)
-            except Exception as exc:
-                st.error(f"Could not analyse report: {exc}")
-        if "brief" in st.session_state:
-            res, ms = st.session_state["brief"]
-            sk = {"bullish": "ok", "bearish": "bad"}.get(res["sentiment"], "mut")
-            st.markdown(f"### {res['headline']}")
-            conf, ms_txt = f"CONF {res['confidence']:.2f}", f"{ms:.0f} MS"
-            st.markdown(f"{pill(res['sentiment'].upper(), sk)} &nbsp; {pill(conf)} &nbsp; "
-                        f"{pill(res['engine'].upper())} &nbsp; {pill(ms_txt)}", unsafe_allow_html=True)
-            for bullet in res["summary"]:
-                st.markdown(f"- {bullet}")
-            if res["signals"]:
-                st.dataframe(pd.DataFrame(res["signals"]).rename(columns=str.title), width='stretch', hide_index=True)
-            if res["price_levels"]:
-                st.markdown("**Quoted levels:** " + " · ".join(res["price_levels"]))
-            agree = (res["sentiment"] == "bullish" and now > 0) or (res["sentiment"] == "bearish" and now < 0)
-            st.info(f"Cross-check: report sentiment is **{res['sentiment']}**, S/D pressure is **{now:+.0f}** → "
-                    + ("aligned." if agree else "not aligned; treat the divergence as a flag."))
 
 st.markdown(f'<div class="lbl" style="margin-top:2rem;border-top:1px solid #2b2924;padding-top:10px">'
             f'Source Yahoo Finance REST · cache TTL 5 min · {len(raw)} bars · fetch {fetch_ms:.0f} ms · '
