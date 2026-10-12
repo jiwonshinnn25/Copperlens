@@ -150,7 +150,8 @@ raw, source = load(symbol, rng)
 cu_raw, cu_src = load("HG=F", rng)
 au_raw, au_src = load("GC=F", rng)
 fetch_ms = (time.perf_counter() - t0) * 1000
-closes = {label: load(sym, rng)[0]["close"] for label, (sym, _) in METALS.items()}
+loaded = {label: load(sym, rng) for label, (sym, _) in METALS.items()}
+closes = {label: v[0]["close"] for label, v in loaded.items()}
 df = an.add_indicators(raw, short, long)
 cu = an.add_indicators(cu_raw)
 ratio = an.copper_gold_ratio(cu["close"], au_raw["close"])
@@ -161,7 +162,7 @@ signals = build_signals(df, sig, now)
 n_bad = sum(s["kind"] == "bad" for s in signals)
 n_warn = sum(s["kind"] == "warn" for s in signals)
 risk = (n_bad + 0.5 * n_warn) / len(signals)
-live = "simulated" not in (source, cu_src, au_src)
+live = "simulated" not in (source, cu_src, au_src, *[v[1] for v in loaded.values()])
 
 # ---------------------------------------------------------------- header
 st.markdown(
@@ -191,7 +192,7 @@ for col, (label, cl) in zip(st.columns(len(closes)), closes.items()):
                  f'<span style="color:{kc};font-size:.78rem">{chg * 100:+.2f}%</span></div>'
                  f'{spark(cl, kc)}</div>', unsafe_allow_html=True)
 if not live:
-    st.warning("Live API unreachable - showing **simulated** (GBM) prices for demonstration only.")
+    st.warning("Live API unreachable for at least one series - those prices are **simulated** (GBM) for demonstration only.")
 st.write("")
 
 tab_ops, tab_sd, tab_risk, tab_alerts, tab_pipe = st.tabs(
